@@ -1,0 +1,549 @@
+<!DOCTYPE html>
+<html lang="en" ng-app="medTrackerApp">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MedTrack &bull; Medication &amp; Health Stock Manager</title>
+  <link rel="stylesheet" href="/css/style.css">
+  <script src="/js/angular.min.js"></script>
+</head>
+<body ng-controller="MainController as vm">
+
+  <div class="app-container">
+    <!-- Header -->
+    <header class="app-header">
+      <div class="brand-section">
+        <div class="brand-icon">💊</div>
+        <div>
+          <h1 class="brand-title">MedTrack</h1>
+          <p class="brand-tagline">Medication Inventory &amp; Weekly Dosette Checklist</p>
+        </div>
+      </div>
+
+      <!-- Header Summary Stats -->
+      <div class="header-stats">
+        <div class="stat-chip" id="stat-total-items">
+          <div class="stat-icon">📦</div>
+          <div class="stat-info">
+            <span class="stat-value">{{ vm.stats.totalMedications || 0 }}</span>
+            <span class="stat-label">Total Medications</span>
+          </div>
+        </div>
+
+        <div class="stat-chip" ng-class="{'stat-warning': vm.stats.lowStockCount > 0}" id="stat-low-stock">
+          <div class="stat-icon">⚠️</div>
+          <div class="stat-info">
+            <span class="stat-value">{{ vm.stats.lowStockCount || 0 }}</span>
+            <span class="stat-label">Needs Reorder</span>
+          </div>
+        </div>
+
+        <div class="stat-chip" id="stat-dosette-items">
+          <div class="stat-icon">📅</div>
+          <div class="stat-info">
+            <span class="stat-value">{{ vm.stats.dosetteCount || 0 }}</span>
+            <span class="stat-label">Dosette Box Items</span>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <!-- Nav Bar -->
+    <nav class="nav-bar">
+      <div class="nav-tabs">
+        <button
+          class="tab-btn"
+          ng-class="{'active': vm.activeTab === 'inventory'}"
+          ng-click="vm.setActiveTab('inventory')"
+          id="tab-inventory">
+          <span>📋 All Medications</span>
+          <span class="tab-badge" ng-if="vm.stats.lowStockCount > 0">{{ vm.stats.lowStockCount }} low</span>
+        </button>
+        <button
+          class="tab-btn"
+          ng-class="{'active': vm.activeTab === 'dosette'}"
+          ng-click="vm.setActiveTab('dosette')"
+          id="tab-dosette">
+          <span>🗓️ Weekly Dosette Checklist</span>
+        </button>
+      </div>
+
+      <div class="nav-actions">
+        <button class="btn btn-primary" ng-click="vm.openAddModal()" id="btn-add-med">
+          <span>➕ Add Medication</span>
+        </button>
+      </div>
+    </nav>
+
+    <!-- PROMINENT ALERT SECTION (LOW STOCK REORDER ALERTS) -->
+    <section class="alerts-banner-container" ng-if="vm.lowStockItems.length > 0" id="reorder-alerts-banner">
+      <div class="alert-card-wrapper">
+        <div class="alert-header">
+          <div class="alert-title">
+            <span>🚨 Pharmacy Reorder Needed</span>
+            <span class="alert-count-pill">{{ vm.lowStockItems.length }} Item{{ vm.lowStockItems.length > 1 ? 's' : '' }} Below Threshold</span>
+          </div>
+          <span style="font-size: 0.85rem; color: #fca5a5;">Immediate restock recommended</span>
+        </div>
+        <div class="alert-grid">
+          <div class="alert-item-box" ng-repeat="item in vm.lowStockItems">
+            <div class="alert-item-info">
+              <h4>{{ item.name }} ({{ item.dosage }})</h4>
+              <p>Form: {{ item.form }} &bull; Pack size: {{ item.pack_size }}</p>
+            </div>
+            <div class="alert-stock-badge">
+              <div class="stock-number">{{ item.current_stock }} left</div>
+              <div class="threshold-tag">Threshold: &le; {{ item.reorder_threshold }}</div>
+              <button
+                class="btn btn-secondary btn-sm"
+                style="margin-top: 6px; padding: 4px 8px;"
+                ng-click="vm.quickAdjust(item, 'pack')"
+                title="Add one pack to restock">
+                + Restock ({{ item.pack_size }})
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- TAB 1: INVENTORY VIEW -->
+    <main ng-show="vm.activeTab === 'inventory'" id="inventory-view">
+      <!-- Search and Filter Bar -->
+      <div class="filter-bar">
+        <div class="search-box">
+          <span class="search-icon">🔍</span>
+          <input
+            type="text"
+            class="search-input"
+            placeholder="Search medications by name, dosage, or form..."
+            ng-model="vm.searchQuery"
+            ng-change="vm.filterMedications()"
+            id="search-input">
+        </div>
+
+        <div class="filter-tags">
+          <button
+            class="filter-tag-btn"
+            ng-class="{'active': vm.filterCategory === 'all'}"
+            ng-click="vm.setFilterCategory('all')">
+            All ({{ vm.medications.length }})
+          </button>
+          <button
+            class="filter-tag-btn"
+            ng-class="{'active': vm.filterCategory === 'lowStock'}"
+            ng-click="vm.setFilterCategory('lowStock')"
+            id="filter-low-stock">
+            ⚠️ Low Stock ({{ vm.lowStockItems.length }})
+          </button>
+          <button
+            class="filter-tag-btn"
+            ng-class="{'active': vm.filterCategory === 'dosette'}"
+            ng-click="vm.setFilterCategory('dosette')"
+            id="filter-dosette">
+            📅 Dosette Only ({{ vm.stats.dosetteCount }})
+          </button>
+        </div>
+      </div>
+
+      <!-- Medication Cards Grid -->
+      <div class="cards-grid" id="medications-grid">
+        <div
+          class="med-card"
+          ng-repeat="med in vm.displayedMedications track by med.id"
+          ng-class="{'is-low-stock': med.current_stock <= med.reorder_threshold}">
+
+          <div class="card-top">
+            <div class="card-title-group">
+              <h3 class="card-title">{{ med.name }}</h3>
+              <div class="card-badges">
+                <span class="badge badge-dosage">{{ med.dosage }}</span>
+                <span class="badge badge-form">{{ med.form }}</span>
+                <span class="badge badge-dosette" ng-if="med.is_dosette">Dosette</span>
+                <span class="badge badge-alert" ng-if="med.current_stock <= med.reorder_threshold">Needs Reorder</span>
+              </div>
+            </div>
+            <div class="card-actions-menu">
+              <button class="icon-btn" ng-click="vm.openEditModal(med)" title="Edit Medication" id="btn-edit-{{ med.id }}">✏️</button>
+              <button class="icon-btn icon-danger" ng-click="vm.deleteMedication(med)" title="Delete Medication" id="btn-delete-{{ med.id }}">🗑️</button>
+            </div>
+          </div>
+
+          <!-- Stock Progress Section -->
+          <div class="stock-status-box">
+            <div class="stock-status-header">
+              <span class="stock-count-label">Remaining Stock</span>
+              <div class="stock-count-numbers" ng-class="{'is-low': med.current_stock <= med.reorder_threshold}">
+                <span class="current">{{ med.current_stock }}</span>
+                <span class="unit">units</span>
+              </div>
+            </div>
+
+            <!-- Visual Progress Bar -->
+            <div class="progress-bar-bg" title="Current Stock: {{ med.current_stock }}, Threshold: {{ med.reorder_threshold }}">
+              <div
+                class="progress-bar-fill"
+                ng-class="vm.getProgressClass(med)"
+                ng-style="{'width': vm.getProgressWidth(med)}">
+              </div>
+            </div>
+
+            <div class="threshold-indicator">
+              <span>Alert threshold: &le; {{ med.reorder_threshold }}</span>
+              <span>Pack size: {{ med.pack_size }}</span>
+            </div>
+          </div>
+
+          <!-- Schedule Notes -->
+          <div class="schedule-info">
+            <div><strong>Daily Schedule:</strong> {{ med.schedule_notes || 'As directed by physician' }}</div>
+            <div ng-if="med.instructions" style="margin-top: 4px; font-size: 0.8rem; color: #94a3b8;">
+              <em>Instructions:</em> {{ med.instructions }}
+            </div>
+            <!-- Dosette timing tags if applicable -->
+            <div class="dosette-slot-badges" ng-if="med.is_dosette">
+              <span class="slot-tag" ng-if="med.dosette_morning">🌅 Morning</span>
+              <span class="slot-tag" ng-if="med.dosette_noon">☀️ Noon</span>
+              <span class="slot-tag" ng-if="med.dosette_evening">🌇 Evening</span>
+              <span class="slot-tag" ng-if="med.dosette_bedtime">🌙 Bedtime</span>
+            </div>
+          </div>
+
+          <!-- Quick Action Buttons -->
+          <div class="quick-actions">
+            <button
+              class="btn btn-secondary btn-sm"
+              ng-click="vm.quickAdjust(med, 'dose')"
+              title="Record dose taken (-1)"
+              id="btn-dose-{{ med.id }}">
+              -1 Dose
+            </button>
+            <button
+              class="btn btn-secondary btn-sm"
+              ng-click="vm.quickAdjust(med, 'pack')"
+              title="Restock full prescription box (+{{ med.pack_size }})"
+              id="btn-pack-{{ med.id }}">
+              + Pack ({{ med.pack_size }})
+            </button>
+            <button
+              class="btn btn-secondary btn-sm"
+              ng-click="vm.openCustomAdjustModal(med)"
+              title="Custom inventory change">
+              &plusmn; Custom
+            </button>
+          </div>
+        </div>
+
+        <div ng-if="vm.displayedMedications.length === 0" style="grid-column: 1 / -1; text-align: center; padding: 48px 16px; color: var(--text-muted);">
+          <p style="font-size: 1.1rem; margin-bottom: 8px;">No medications found matching your criteria.</p>
+          <button class="btn btn-primary" ng-click="vm.openAddModal()">Add your first medication</button>
+        </div>
+      </div>
+    </main>
+
+    <!-- TAB 2: WEEKLY PILL BOX / DOSETTE CHECKLIST VIEW -->
+    <section ng-show="vm.activeTab === 'dosette'" id="dosette-view" class="dosette-view-container">
+      <div class="dosette-hero-card">
+        <div class="dosette-hero-info">
+          <h2>🗓️ Weekly Dosette Box Checklist Mode</h2>
+          <p>
+            Easily pack compartments for Morning, Noon, Evening, and Bedtime.
+            Check off each slot as you fill your 7-day pill organizer.
+          </p>
+        </div>
+        <div class="dosette-actions">
+          <button class="btn btn-secondary btn-sm" ng-click="vm.resetDosetteChecklist()">
+            🔄 Reset Checks
+          </button>
+          <button class="btn btn-primary btn-sm" ng-click="vm.packEntireWeek()" id="btn-pack-week">
+            📦 Pack Week &amp; Deduct Stock
+          </button>
+        </div>
+      </div>
+
+      <!-- Day of the Week Selector -->
+      <div class="day-selector-bar">
+        <button
+          class="day-tab-btn"
+          ng-repeat="day in vm.daysOfWeek track by $index"
+          ng-class="{'active': vm.selectedDayIndex === $index}"
+          ng-click="vm.selectDay($index)">
+          <div class="day-name">{{ day.name }}</div>
+          <div class="day-status">{{ vm.getDayCompletionStatus($index) }}</div>
+        </button>
+      </div>
+
+      <!-- Compartment Columns for Selected Day -->
+      <div class="compartments-grid">
+        <!-- Morning Compartment -->
+        <div class="compartment-column">
+          <div class="compartment-header">
+            <span class="compartment-title morning">🌅 Morning</span>
+            <span class="compartment-badge">{{ vm.getSlotMedications('morning').length }} meds</span>
+          </div>
+          <div class="checklist-items">
+            <div
+              class="checklist-item"
+              ng-repeat="med in vm.getSlotMedications('morning')"
+              ng-class="{'checked': vm.isSlotChecked(vm.selectedDayIndex, 'morning', med.id)}"
+              ng-click="vm.toggleSlotCheck(vm.selectedDayIndex, 'morning', med.id)">
+              <div class="checklist-checkbox">
+                <span ng-if="vm.isSlotChecked(vm.selectedDayIndex, 'morning', med.id)">✓</span>
+              </div>
+              <div class="checklist-details">
+                <div class="checklist-med-name">{{ med.name }} {{ med.dosage }}</div>
+                <div class="checklist-meta">{{ med.form }} &bull; {{ med.schedule_notes }}</div>
+                <div class="checklist-stock-status" ng-class="{'low': med.current_stock <= med.reorder_threshold}">
+                  Stock: {{ med.current_stock }} units left
+                </div>
+              </div>
+            </div>
+            <div class="empty-compartment" ng-if="vm.getSlotMedications('morning').length === 0">
+              No morning medications configured
+            </div>
+          </div>
+        </div>
+
+        <!-- Noon Compartment -->
+        <div class="compartment-column">
+          <div class="compartment-header">
+            <span class="compartment-title noon">☀️ Noon</span>
+            <span class="compartment-badge">{{ vm.getSlotMedications('noon').length }} meds</span>
+          </div>
+          <div class="checklist-items">
+            <div
+              class="checklist-item"
+              ng-repeat="med in vm.getSlotMedications('noon')"
+              ng-class="{'checked': vm.isSlotChecked(vm.selectedDayIndex, 'noon', med.id)}"
+              ng-click="vm.toggleSlotCheck(vm.selectedDayIndex, 'noon', med.id)">
+              <div class="checklist-checkbox">
+                <span ng-if="vm.isSlotChecked(vm.selectedDayIndex, 'noon', med.id)">✓</span>
+              </div>
+              <div class="checklist-details">
+                <div class="checklist-med-name">{{ med.name }} {{ med.dosage }}</div>
+                <div class="checklist-meta">{{ med.form }} &bull; {{ med.schedule_notes }}</div>
+                <div class="checklist-stock-status" ng-class="{'low': med.current_stock <= med.reorder_threshold}">
+                  Stock: {{ med.current_stock }} units left
+                </div>
+              </div>
+            </div>
+            <div class="empty-compartment" ng-if="vm.getSlotMedications('noon').length === 0">
+              No noon medications configured
+            </div>
+          </div>
+        </div>
+
+        <!-- Evening Compartment -->
+        <div class="compartment-column">
+          <div class="compartment-header">
+            <span class="compartment-title evening">🌇 Evening</span>
+            <span class="compartment-badge">{{ vm.getSlotMedications('evening').length }} meds</span>
+          </div>
+          <div class="checklist-items">
+            <div
+              class="checklist-item"
+              ng-repeat="med in vm.getSlotMedications('evening')"
+              ng-class="{'checked': vm.isSlotChecked(vm.selectedDayIndex, 'evening', med.id)}"
+              ng-click="vm.toggleSlotCheck(vm.selectedDayIndex, 'evening', med.id)">
+              <div class="checklist-checkbox">
+                <span ng-if="vm.isSlotChecked(vm.selectedDayIndex, 'evening', med.id)">✓</span>
+              </div>
+              <div class="checklist-details">
+                <div class="checklist-med-name">{{ med.name }} {{ med.dosage }}</div>
+                <div class="checklist-meta">{{ med.form }} &bull; {{ med.schedule_notes }}</div>
+                <div class="checklist-stock-status" ng-class="{'low': med.current_stock <= med.reorder_threshold}">
+                  Stock: {{ med.current_stock }} units left
+                </div>
+              </div>
+            </div>
+            <div class="empty-compartment" ng-if="vm.getSlotMedications('evening').length === 0">
+              No evening medications configured
+            </div>
+          </div>
+        </div>
+
+        <!-- Bedtime Compartment -->
+        <div class="compartment-column">
+          <div class="compartment-header">
+            <span class="compartment-title bedtime">🌙 Bedtime</span>
+            <span class="compartment-badge">{{ vm.getSlotMedications('bedtime').length }} meds</span>
+          </div>
+          <div class="checklist-items">
+            <div
+              class="checklist-item"
+              ng-repeat="med in vm.getSlotMedications('bedtime')"
+              ng-class="{'checked': vm.isSlotChecked(vm.selectedDayIndex, 'bedtime', med.id)}"
+              ng-click="vm.toggleSlotCheck(vm.selectedDayIndex, 'bedtime', med.id)">
+              <div class="checklist-checkbox">
+                <span ng-if="vm.isSlotChecked(vm.selectedDayIndex, 'bedtime', med.id)">✓</span>
+              </div>
+              <div class="checklist-details">
+                <div class="checklist-med-name">{{ med.name }} {{ med.dosage }}</div>
+                <div class="checklist-meta">{{ med.form }} &bull; {{ med.schedule_notes }}</div>
+                <div class="checklist-stock-status" ng-class="{'low': med.current_stock <= med.reorder_threshold}">
+                  Stock: {{ med.current_stock }} units left
+                </div>
+              </div>
+            </div>
+            <div class="empty-compartment" ng-if="vm.getSlotMedications('bedtime').length === 0">
+              No bedtime medications configured
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- MODAL: ADD / EDIT MEDICATION -->
+    <div class="modal-overlay" ng-if="vm.showModal" id="medication-modal">
+      <div class="modal-dialog">
+        <div class="modal-header">
+          <h3 class="modal-title">{{ vm.isEditing ? 'Edit Medication' : 'Add New Medication' }}</h3>
+          <button class="modal-close-btn" ng-click="vm.closeModal()">&times;</button>
+        </div>
+
+        <form ng-submit="vm.saveMedication()">
+          <div class="modal-body">
+            <div class="form-grid">
+              <div class="form-group full-width">
+                <label class="form-label">Medication Name *</label>
+                <input type="text" class="form-control" ng-model="vm.formData.name" required placeholder="e.g. Atorvastatin" id="form-name">
+              </div>
+
+              <div class="form-group">
+                <label class="form-label">Dosage *</label>
+                <input type="text" class="form-control" ng-model="vm.formData.dosage" required placeholder="e.g. 20 mg, 100 mcg" id="form-dosage">
+              </div>
+
+              <div class="form-group">
+                <label class="form-label">Form</label>
+                <select class="form-control" ng-model="vm.formData.form" id="form-type">
+                  <option value="tablet">Tablet</option>
+                  <option value="capsule">Capsule</option>
+                  <option value="inhaler">Inhaler</option>
+                  <option value="liquid / drops">Liquid / Drops</option>
+                  <option value="injection">Injection / Pen</option>
+                  <option value="nasal spray">Nasal Spray</option>
+                  <option value="topical / cream">Topical / Cream</option>
+                  <option value="other">Other</option>
+                </select>
+              </div>
+
+              <div class="form-group">
+                <label class="form-label">Current Stock Count</label>
+                <input type="number" min="0" class="form-control" ng-model="vm.formData.current_stock" id="form-stock">
+              </div>
+
+              <div class="form-group">
+                <label class="form-label">Reorder Threshold *</label>
+                <input type="number" min="0" class="form-control" ng-model="vm.formData.reorder_threshold" required id="form-threshold">
+              </div>
+
+              <div class="form-group full-width">
+                <label class="form-label">Pack / Box Size (Prescription units)</label>
+                <input type="number" min="1" class="form-control" ng-model="vm.formData.pack_size" id="form-pack-size">
+              </div>
+
+              <div class="form-group full-width">
+                <label class="form-label">Daily Scheduling Instructions</label>
+                <input type="text" class="form-control" ng-model="vm.formData.schedule_notes" placeholder="e.g. 1 tablet in the morning with water" id="form-schedule">
+              </div>
+
+              <div class="form-group full-width">
+                <label class="form-label">Additional Doctor/Pharmacy Notes</label>
+                <textarea class="form-control" rows="2" ng-model="vm.formData.instructions" placeholder="Take after meals, store in cool place..."></textarea>
+              </div>
+
+              <div class="form-group full-width" style="margin-top: 8px;">
+                <label class="checkbox-label" style="font-weight: 700; color: #fff;">
+                  <input type="checkbox" ng-model="vm.formData.is_dosette" ng-true-value="1" ng-false-value="0" id="form-is-dosette">
+                  <span>Include in Weekly Dosette / Pill Box Checklist</span>
+                </label>
+              </div>
+
+              <!-- Dosette Compartment Timing Options (Only if flagged as dosette item) -->
+              <div class="form-group full-width" ng-if="vm.formData.is_dosette" style="background: rgba(168, 85, 247, 0.08); padding: 12px; border-radius: 6px; border: 1px solid rgba(168, 85, 247, 0.2);">
+                <label class="form-label" style="color: #c084fc;">Select Dosette Box Daily Compartments:</label>
+                <div class="dosette-slots-checkboxes">
+                  <label class="checkbox-label">
+                    <input type="checkbox" ng-model="vm.formData.dosette_morning" ng-true-value="1" ng-false-value="0" id="form-slot-morning">
+                    <span>🌅 Morning</span>
+                  </label>
+                  <label class="checkbox-label">
+                    <input type="checkbox" ng-model="vm.formData.dosette_noon" ng-true-value="1" ng-false-value="0" id="form-slot-noon">
+                    <span>☀️ Noon</span>
+                  </label>
+                  <label class="checkbox-label">
+                    <input type="checkbox" ng-model="vm.formData.dosette_evening" ng-true-value="1" ng-false-value="0" id="form-slot-evening">
+                    <span>🌇 Evening</span>
+                  </label>
+                  <label class="checkbox-label">
+                    <input type="checkbox" ng-model="vm.formData.dosette_bedtime" ng-true-value="1" ng-false-value="0" id="form-slot-bedtime">
+                    <span>🌙 Bedtime</span>
+                  </label>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" ng-click="vm.closeModal()">Cancel</button>
+            <button type="submit" class="btn btn-primary" id="btn-save-med">Save Medication</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- MODAL: CUSTOM STOCK ADJUSTMENT -->
+    <div class="modal-overlay" ng-if="vm.showCustomAdjustModal" id="custom-adjust-modal">
+      <div class="modal-dialog" style="max-width: 420px;">
+        <div class="modal-header">
+          <h3 class="modal-title">Adjust Stock: {{ vm.customAdjustMed.name }}</h3>
+          <button class="modal-close-btn" ng-click="vm.closeCustomAdjustModal()">&times;</button>
+        </div>
+        <form ng-submit="vm.submitCustomAdjust()">
+          <div class="modal-body">
+            <p style="margin-bottom: 12px; font-size: 0.9rem; color: var(--text-secondary);">
+              Current stock: <strong>{{ vm.customAdjustMed.current_stock }}</strong> units
+            </p>
+            <div class="form-group" style="margin-bottom: 14px;">
+              <label class="form-label">Stock Change Amount</label>
+              <input
+                type="number"
+                class="form-control"
+                ng-model="vm.customAdjustAmount"
+                required
+                placeholder="Use positive (+10) to add, negative (-5) to deduct"
+                id="custom-adjust-amount-input">
+              <span style="font-size: 0.75rem; color: var(--text-muted); margin-top: 4px;">
+                Resulting stock will be: {{ vm.customAdjustMed.current_stock + (vm.customAdjustAmount || 0) }}
+              </span>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Reason / Reference (Optional)</label>
+              <input
+                type="text"
+                class="form-control"
+                ng-model="vm.customAdjustReason"
+                placeholder="e.g. Pharmacy refill, lost dose, physical count sync">
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" ng-click="vm.closeCustomAdjustModal()">Cancel</button>
+            <button type="submit" class="btn btn-primary" id="btn-submit-adjust">Update Stock</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- TOAST NOTIFICATIONS -->
+    <div class="toast-container" id="toast-container">
+      <div class="toast" ng-repeat="toast in vm.toasts" ng-class="'toast-' + toast.type">
+        <span>{{ toast.icon }}</span>
+        <span>{{ toast.message }}</span>
+      </div>
+    </div>
+  </div>
+
+  <script src="/js/app.js"></script>
+</body>
+</html>
